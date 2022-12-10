@@ -1,0 +1,3 @@
+[submodule "gfx-math"]
+	path = gfx-math
+	url = https://github.com/pokeblokdude/gfx-math.git
