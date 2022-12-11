@@ -1,10 +1,18 @@
 #include <SPI.h>
 #include "Adafruit_TFTLCD.h"
 #include "GFX_Math.h"
+#include "object.h"
+#include "levels.h"
 
-#define BLACK 0x0000
-#define GRAY 0x7BEF
-#define WHITE 0xFFFF
+#define BLACK     0x0000
+#define GRAY      0x7BEF
+#define LIGHTGRAY 0xC638
+#define WHITE     0xFFFF
+#define GREEN     0x07E0
+#define BLUE      0x3CDF
+#define PURPLE    0x99BF
+#define RED       0xD083
+#define GOLD      0xE5A6
 
 #define LCD_CS A3 // Chip Select goes to Analog 3
 #define LCD_CD A2 // Command/Data goes to Analog 2
@@ -13,28 +21,42 @@
 
 Adafruit_TFTLCD tft(LCD_CS, LCD_CD, LCD_WR, LCD_RD, NULL);
 
+Block BLOCKS[8][7];
+
+unsigned long t;
+unsigned long dt;
+
 uint16_t data;
 uint8_t bytesReceived; // 0, 1, or 2
 
 int x;
 
-struct Bounds { 
-  vec2i min;
-  vec2i max;
-};
-
-struct Ball {
-  vec2i position = vec2i{120, 160};
-  vec2i lastPos;
-  vec2i velocity;
-  Bounds bounds;
-  int radius = 4;
-  uint16_t color = 0xFFFF;
-};
-
 Ball ball;
 
+uint16_t ColorFromBlock(Block b) {
+  switch(b.health) {
+    case 0:
+      return BLACK;
+    case 1: 
+      return LIGHTGRAY;
+    case 2:
+      return GREEN;
+    case 3:
+      return BLUE;
+    case 4:
+      return PURPLE;
+    case 5: 
+      return RED;
+    case 6:
+      return GOLD;
+    default:
+      return BLACK;
+  }
+}
+
 void DrawWalls() {
+  Serial.println("Drawing walls...");
+  // top wall white
   tft.drawFastHLine(0, 0, 240, WHITE);
   tft.drawFastHLine(0, 1, 240, WHITE);
   tft.drawFastHLine(0, 2, 240, WHITE);
@@ -42,6 +64,7 @@ void DrawWalls() {
   tft.drawFastHLine(0, 4, 240, WHITE);
   tft.drawFastHLine(0, 5, 240, WHITE);
   
+  // left wall white
   tft.drawFastVLine(0, 6, 313, WHITE);
   tft.drawFastVLine(1, 6, 313, WHITE);
   tft.drawFastVLine(2, 6, 313, WHITE);
@@ -49,52 +72,78 @@ void DrawWalls() {
   tft.drawFastVLine(4, 6, 313, WHITE);
   tft.drawFastVLine(5, 6, 313, WHITE);
   
+  // right wall white
   tft.drawFastVLine(239, 6, 313, WHITE);
   tft.drawFastVLine(238, 6, 313, WHITE);
   tft.drawFastVLine(237, 6, 313, WHITE);
   tft.drawFastVLine(236, 6, 313, WHITE);
   tft.drawFastVLine(235, 6, 313, WHITE);
   tft.drawFastVLine(234, 6, 313, WHITE);
+}
 
-  tft.drawFastHLine(7, 6, 226, GRAY);
-  tft.drawFastHLine(8, 7, 224, GRAY);
-  tft.drawFastHLine(9, 8, 222, GRAY);
-  
-  tft.drawFastVLine(6, 7, 313, GRAY);
-  tft.drawFastVLine(7, 8, 312, GRAY);
-  tft.drawFastVLine(8, 9, 311, GRAY);
-  
-  tft.drawFastVLine(233, 7, 313, GRAY);
-  tft.drawFastVLine(232, 8, 312, GRAY);
-  tft.drawFastVLine(231, 9, 311, GRAY);
+const int xdist = 13;
+const int ydist = 29;
 
-  tft.drawPixel(6, 6, WHITE);
-  tft.drawPixel(7, 7, WHITE);
-  tft.drawPixel(8, 8, WHITE);
-  
-  tft.drawPixel(233, 6, WHITE);
-  tft.drawPixel(232, 7, WHITE);
-  tft.drawPixel(231, 8, WHITE);
+void GenerateBlocks() {
+  Serial.println("Generating blocks...");
+  for(int i = 0; i < 8; i++) {
+    for(int j = 0; j < 7; j++) {
+      BLOCKS[i][j] = Block{vec2i{j*31 + xdist, i*17 + ydist}, 0};
+    }
+  }
+}
+
+void DrawBlocks() {
+  Serial.println("Drawing blocks...");
+  for(int i = 0; i < 8; i++) {
+    for(int j = 0; j < 7; j++) {
+      tft.fillRect(BLOCKS[i][j].position.x, BLOCKS[i][j].position.y, 28, 14, ColorFromBlock(BLOCKS[i][j]));
+    }
+  }
+}
+
+void LoadLevel(uint8_t level[][7]) {
+  for(int i = 0; i < 8; i++) {
+    for(int j = 0; j < 7; j++) {
+      BLOCKS[i][j].health = level[i][j];
+    }
+  }
 }
 
 void setup() {
   Serial.begin(9600);
-  pinMode(MISO, OUTPUT);
-  SPCR |= _BV(SPE);
+  //pinMode(MISO, OUTPUT);
+  //SPCR |= _BV(SPE);
   //SPI.attachInterrupt();
+
+  Serial.println(sizeof(uint16_t));
 
   tft.reset();
   uint16_t id = tft.readID();
   tft.begin(id);
+  tft.setTextColor(GREEN);
+  tft.setTextSize(2);
   tft.fillScreen(BLACK);
+
+  // game setup
+  Serial.println("test");
   DrawWalls();
+  GenerateBlocks();
+  LoadLevel(level1);
+  DrawBlocks();
 
   x = 0;
-  ball.velocity = vec2i{1, 1};
+  ball.velocity = vec2i{1, 2};
 }
 
 void loop() {
-  unsigned long t = millis();
+  t = millis();
+
+  tft.setCursor(8, 304);
+  tft.fillRect(8, 304, 24, 16, BLACK);
+  tft.print(dt);
+  Serial.println(dt);
+
   //update ball
   ball.lastPos = ball.position;
   ball.position += ball.velocity;
@@ -104,10 +153,10 @@ void loop() {
   ball.bounds.max.x = ball.position.x + ball.radius;
   ball.bounds.max.y = ball.position.y + ball.radius;
 
-  if(ball.bounds.max.x >= 230 || ball.bounds.min.x <= 9) {
+  if(ball.bounds.max.x >= 233 || ball.bounds.min.x <= 6) {
     ball.velocity.x *= -1;
   }
-  if(ball.bounds.max.y >= 319 || ball.bounds.min.y <= 9) {
+  if(ball.bounds.max.y >= 319 || ball.bounds.min.y <= 6) {
     ball.velocity.y *= -1;
   }
   tft.fillCircle(ball.lastPos.x, ball.lastPos.y, ball.radius, 0x0000);
@@ -129,8 +178,7 @@ void loop() {
   //   x++;
   // }
   //delay(100);
-  unsigned long dt = millis() - t;
-  Serial.println(dt);
+  dt = millis() - t;
 }
 
 ISR(SPI_STC_vect) {
