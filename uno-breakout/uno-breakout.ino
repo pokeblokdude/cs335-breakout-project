@@ -10,7 +10,7 @@
 #define WHITE     0xFFFF
 #define GREEN     0x07E0
 #define BLUE      0x3CDF
-#define PURPLE    0x99BF
+#define PURPLE    0xB01F
 #define RED       0xD083
 #define GOLD      0xE5A6
 
@@ -21,6 +21,8 @@
 
 Adafruit_TFTLCD tft(LCD_CS, LCD_CD, LCD_WR, LCD_RD, NULL);
 
+#define BLOCK_SIZE_X 28
+#define BLOCK_SIZE_Y 14
 Block BLOCKS[8][7];
 
 unsigned long t;
@@ -29,7 +31,7 @@ unsigned long dt;
 uint16_t data;
 uint8_t bytesReceived; // 0, 1, or 2
 
-int x;
+bool ballInBlockZone;
 
 Ball ball;
 
@@ -81,14 +83,30 @@ void DrawWalls() {
   tft.drawFastVLine(234, 6, 313, WHITE);
 }
 
-const int xdist = 13;
-const int ydist = 29;
+// 28 = blocksize, 3 = gap, 13 = offset
+// blockPos.x = index * 28 + index * 3 + 13
+// blockPos.x - 13 = index * 28 + index * 3
+// blockPos.x - 13 = index * (31)
+// (blockPos.x - 13) / 31 = index
+
+// 14 = blocksize, 3 = gap, 29 = offset
+// blockPos.y = index * 14 + index * 3 + 29
+// blockPos.y - 29 = index * 14 + index * 3
+// blockPos.y - 29 = index * (17)
+// (blockPos.y - 29) / 17 = index
+vec2i blockPositionFromIndex(int x, int y) {
+  return vec2i{x*BLOCK_SIZE_X + x*3 + 13, y*BLOCK_SIZE_Y + y*3 + 29};
+}
+vec2i indexFromBlockPosition(int x, int y) {
+  return vec2i{(x - 13) / 31, (y - 29) / 17};
+}
 
 void GenerateBlocks() {
   Serial.println("Generating blocks...");
   for(int i = 0; i < 8; i++) {
     for(int j = 0; j < 7; j++) {
-      BLOCKS[i][j] = Block{vec2i{j*31 + xdist, i*17 + ydist}, 0};
+      vec2i position = blockPositionFromIndex(j, i);
+      BLOCKS[i][j] = Block{position, 0};
     }
   }
 }
@@ -97,7 +115,7 @@ void DrawBlocks() {
   Serial.println("Drawing blocks...");
   for(int i = 0; i < 8; i++) {
     for(int j = 0; j < 7; j++) {
-      tft.fillRect(BLOCKS[i][j].position.x, BLOCKS[i][j].position.y, 28, 14, ColorFromBlock(BLOCKS[i][j]));
+      tft.fillRect(BLOCKS[i][j].position.x, BLOCKS[i][j].position.y, BLOCK_SIZE_X, BLOCK_SIZE_Y, ColorFromBlock(BLOCKS[i][j]));
     }
   }
 }
@@ -116,8 +134,6 @@ void setup() {
   //SPCR |= _BV(SPE);
   //SPI.attachInterrupt();
 
-  Serial.println(sizeof(uint16_t));
-
   tft.reset();
   uint16_t id = tft.readID();
   tft.begin(id);
@@ -126,14 +142,28 @@ void setup() {
   tft.fillScreen(BLACK);
 
   // game setup
-  Serial.println("test");
   DrawWalls();
   GenerateBlocks();
   LoadLevel(level1);
   DrawBlocks();
 
-  x = 0;
-  ball.velocity = vec2i{1, 2};
+  ball.velocity = vec2i{1, 0};
+  ball.position = vec2i{120, 250};
+}
+
+void ballBlockCollision(int x, int y, int w, int h) {
+  // check if the ball is anywhere other than the block
+  if(
+    ball.bounds.min.x > x + w ||
+    ball.bounds.max.x < x     ||
+    ball.bounds.min.y > y + h ||
+    ball.bounds.max.y < y
+  ) {
+    return;
+  }
+  else {
+
+  }
 }
 
 void loop() {
@@ -142,7 +172,23 @@ void loop() {
   tft.setCursor(8, 304);
   tft.fillRect(8, 304, 24, 16, BLACK);
   tft.print(dt);
-  Serial.println(dt);
+  //Serial.println(dt);
+  
+  // block collisions
+  ballInBlockZone = ball.bounds.min.y < 162;
+  if(ballInBlockZone) {
+    // collide ball with blocks
+    for(int i = 0; i < 8; i++) {
+      for(int j = 0; j < 7; j++) {
+        ballBlockCollision(BLOCKS[i][j].position.x, BLOCKS[i][j].position.y, BLOCK_SIZE_X, BLOCK_SIZE_Y);
+      }
+    }
+  }
+  else {
+    // paddle collision
+    ballBlockCollision();
+  }
+
 
   //update ball
   ball.lastPos = ball.position;
@@ -159,7 +205,9 @@ void loop() {
   if(ball.bounds.max.y >= 319 || ball.bounds.min.y <= 6) {
     ball.velocity.y *= -1;
   }
-  tft.fillCircle(ball.lastPos.x, ball.lastPos.y, ball.radius, 0x0000);
+
+  // draw ball
+  tft.fillRect(ball.lastPos.x-ball.radius, ball.lastPos.y-ball.radius, 2*ball.radius+1, 2*ball.radius+1, 0x0000);
   tft.fillCircle(ball.position.x, ball.position.y, ball.radius, ball.color);
   delay(5);
 
