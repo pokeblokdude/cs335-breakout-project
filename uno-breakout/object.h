@@ -14,9 +14,17 @@ struct Ball {
   Bounds bounds;
   int radius = 4;
   uint16_t color = 0xFFFF;
+  uint8_t paddleHits;
 };
 
 struct Block {
   vec2i position;
   uint8_t health;
+};
+
+struct Paddle {
+  vec2i position;
+  vec2i lastPos;
+  vec2i velocity;
+  int w, h;
 };
