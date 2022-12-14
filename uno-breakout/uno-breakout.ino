@@ -17,6 +17,7 @@
 #define PURPLE    0xF81F
 #define RED       0xF800
 #define GOLD      0xFF80
+#define PINK      0xF81F
 
 #define LCD_CS A3 // Chip Select goes to Analog 3
 #define LCD_CD A2 // Command/Data goes to Analog 2
@@ -35,7 +36,10 @@ Paddle paddle;
 
 unsigned long t;
 unsigned long dt;
+int count;
 bool ballInBlockZone;
+bool holdingButton;
+bool showFrametime;
 
 enum GameState {
   TITLE,
@@ -45,6 +49,8 @@ enum GameState {
   WON_LEVEL,
   WON_GAME
 };
+
+GameState gameState;
 
 Ball ball;
 
@@ -143,8 +149,47 @@ void DrawBall() {
   delay(5);
 }
 
+void DrawTitleScreen() {
+  tft.fillScreen(BLACK);
+  tft.setTextSize(4);
+  tft.setTextColor(BLUE);
+  tft.setCursor(20, 100);
+  tft.print("BREAKOUT!");
+  tft.setTextColor(PURPLE);
+  tft.setCursor(22, 99);
+  tft.print("BREAKOUT!");
+  tft.setTextColor(RED);
+  tft.setCursor(24, 98);
+  tft.print("BREAKOUT!");
+  tft.setTextSize(2);
+  //tft.setTextColor(PURPLE);
+  tft.setCursor(107, 160);
+  tft.println("Start");
+}
+
+void DrawPauseMenu() {
+  tft.fillRect(20, 100, 200, 60, BLACK);
+  tft.setTextSize(4);
+  tft.setCursor(50, 120);
+  tft.println("PAUSED");
+  tft.setTextSize(1);
+  tft.setCursor(50, 160);
+  tft.println("Press button to resume.");
+}
+
+void DrawGameoverScreen() {
+  tft.fillRect(20, 100, 200, 60, BLACK);
+  tft.setTextSize(4);
+  tft.setTextColor(RED);
+  tft.setCursor(24, 120);
+  tft.println("YOU LOST");
+  tft.setTextSize(1);
+  tft.setCursor(46, 160);
+  tft.println("Press button to restart.");
+}
 
 void RESTART_GAME() {
+  Serial.println("restarting game");
   tft.fillScreen(BLACK);
   DrawWalls();
   GenerateBlocks();
@@ -152,15 +197,20 @@ void RESTART_GAME() {
   DrawBlocks();
 
   ball.velocity = vec2i{2, -1};
-  ball.position = vec2i{50, 115};
+  ball.position = vec2i{120, 250};
   ball.lastPos = ball.position;
-  ball.paddleHits = 0;
+  ball.bounds.min.x = ball.position.x - ball.radius;
+  ball.bounds.min.y = ball.position.y - ball.radius;
+  ball.bounds.max.x = ball.position.x + ball.radius;
+  ball.bounds.max.y = ball.position.y + ball.radius;
 
   paddle.w = PADDLE_W;
   paddle.h = PADDLE_H;
   paddle.position = vec2i{120 - PADDLE_W/2, 284};
   paddle.lastPos = paddle.position;
   DrawPaddle();
+
+  gameState = PLAYING;
 }
 
 // ========================================================== SETUP ==============================================================
@@ -175,8 +225,17 @@ void setup() {
   tft.setTextColor(GREEN);
   tft.setTextSize(2);
 
+  gameState = TITLE;
+  holdingButton = false;
+  count = 0;
+  showFrametime = false;
+
   // game setup
-  RESTART_GAME();
+  //RESTART_GAME();
+  ball.position = vec2i{120, 250};
+  ball.lastPos = ball.position;
+  ball.velocity = vec2i{2, 0};
+  DrawTitleScreen();
 }
 // =================================================================================================================================
 
@@ -205,8 +264,6 @@ bool ballHorizontalCollision(int x, int y, int w, int h) {
   }
   else {
     float slope = ball.velocity.y / (float)ball.velocity.x;
-    Serial.print("Slope: ");
-    Serial.println(slope, 6);
     if(slope > 0 && ball.velocity.x > 0) {
       // moving down right
       vec2i corner = vec2i{x - ball.position.x, y - ball.position.y};   // distance to nearest corner
@@ -214,7 +271,6 @@ bool ballHorizontalCollision(int x, int y, int w, int h) {
         return false;
       }
       else if(corner.y/(float)corner.x < slope) {
-        Serial.println("horizontal bounce");
         return true;
       }
       else {
@@ -266,91 +322,175 @@ bool ballHorizontalCollision(int x, int y, int w, int h) {
 // =================================================================== LOOP ===========================================================
 void loop() {
   t = millis();
+  Serial.println(gameState);
 
-  tft.setCursor(8, 304);
-  tft.fillRect(8, 304, 24, 16, BLACK);
-  tft.print(dt);
+  if(showFrametime) {
+    tft.setCursor(8, 304);
+    tft.fillRect(8, 304, 36, 16, BLACK);
+    tft.print(dt);
+  }
+  else {
+    delay(5); // this compensates for the reduction in latency when not printing the frametime
+  }
+  count += dt;
   //Serial.println(dt);
   
   int joyx = (analogRead(JOY_X) - 515) / 50;
-  //Serial.println(joyx);
+  int joyy = (analogRead(JOY_Y) - 515) / 50;
+  int btn = 1 - digitalRead(JOY_BTN);
 
-  //update ball
-  ball.lastPos = ball.position;
+  if(btn == 1 && holdingButton) {
+    btn = 0;
+  }
+  else if(btn == 1 && !holdingButton) {
+    holdingButton = true;    
+  }
+  else {
+    holdingButton = false;
+  }
+  //Serial.println(btn);
 
-  if(ball.bounds.max.x >= 232) {
-    ball.velocity.x = -abs(ball.velocity.x);
-  }
-  else if(ball.bounds.min.x <= 6) {
-    ball.velocity.x = abs(ball.velocity.x);
-  }
-  if(ball.bounds.max.y >= 319 || ball.bounds.min.y <= 6) {
-    ball.velocity.y *= -1;
-  }
+  switch(gameState) {
+    case PLAYING:
+    {
+      if(btn == 1) {
+        DrawPauseMenu();
+        gameState = PAUSED;
+        break;
+      }
 
-  // update paddle
-  paddle.velocity.x = joyx;
-  paddle.lastPos = paddle.position;
-  paddle.position += paddle.velocity;
-  paddle.position.x = clamp(paddle.position.x, 7, 233 - PADDLE_W);
-  // only redraw paddle if it has moved
-  if(paddle.lastPos.x != paddle.position.x) {
-    DrawPaddle();
-  }
+      //update ball
+      ball.lastPos = ball.position;
 
-  // block collisions
-  ballInBlockZone = ball.bounds.min.y < 162;
-  if(ballInBlockZone) {
-    // collide ball with blocks
-    for(int i = 0; i < 8; i++) {
-      for(int j = 0; j < 7; j++) {
-        if(BLOCKS[i][j].health != 0) {
-          bool collision = ballBlockCollision(BLOCKS[i][j].position.x, BLOCKS[i][j].position.y, BLOCK_SIZE_X, BLOCK_SIZE_Y);
-          if(collision) {
-            BLOCKS[i][j].health -= 1;
-            tft.fillRect(BLOCKS[i][j].position.x, BLOCKS[i][j].position.y, BLOCK_SIZE_X, BLOCK_SIZE_Y, ColorFromBlock(BLOCKS[i][j]));
-            if(ballHorizontalCollision(BLOCKS[i][j].position.x, BLOCKS[i][j].position.y, BLOCK_SIZE_X, BLOCK_SIZE_Y)) {
-              ball.velocity.x *= -1;
+      if(ball.bounds.max.x >= 232) {
+        ball.velocity.x = -abs(ball.velocity.x);
+      }
+      else if(ball.bounds.min.x <= 6) {
+        ball.velocity.x = abs(ball.velocity.x);
+      }
+      if(ball.bounds.min.y <= 6) {
+        ball.velocity.y *= -1;
+      }
+      else if(ball.bounds.max.y >= 319) {
+        DrawGameoverScreen();
+        gameState = GAME_OVER;
+        break;
+      }
+
+      // update paddle
+      paddle.velocity.x = joyx;
+      paddle.lastPos = paddle.position;
+      paddle.position += paddle.velocity;
+      paddle.position.x = clamp(paddle.position.x, 7, 233 - PADDLE_W);
+      // only redraw paddle if it has moved
+      if(paddle.lastPos.x != paddle.position.x) {
+        DrawPaddle();
+      }
+
+      // block collisions
+      ballInBlockZone = ball.bounds.min.y < 162;
+      if(ballInBlockZone) {
+        // collide ball with blocks
+        for(int i = 0; i < 8; i++) {
+          for(int j = 0; j < 7; j++) {
+            if(BLOCKS[i][j].health != 0) {
+              bool collision = ballBlockCollision(BLOCKS[i][j].position.x, BLOCKS[i][j].position.y, BLOCK_SIZE_X, BLOCK_SIZE_Y);
+              if(collision) {
+                BLOCKS[i][j].health -= 1;
+                tft.fillRect(BLOCKS[i][j].position.x, BLOCKS[i][j].position.y, BLOCK_SIZE_X, BLOCK_SIZE_Y, ColorFromBlock(BLOCKS[i][j]));
+                if(ballHorizontalCollision(BLOCKS[i][j].position.x, BLOCKS[i][j].position.y, BLOCK_SIZE_X, BLOCK_SIZE_Y)) {
+                  ball.velocity.x *= -1;
+                }
+                else {
+                  ball.velocity.y *= -1;
+                }
+                break;
+              }
             }
-            else {
-              ball.velocity.y *= -1;
-            }
-            break;
           }
         }
       }
-    }
-  }
-  else {
-    // paddle collision
-    bool collision = ballBlockCollision(paddle.position.x, paddle.position.y, paddle.w, paddle.h);
-    if(collision) {
-      if(ballHorizontalCollision(paddle.position.x, paddle.position.y, paddle.w, paddle.h)) {
-        ball.velocity.x *= -1;
-      }
       else {
-        ball.velocity.y *= -1;
-        if(ball.paddleHits > 5) {
-          ball.velocity *= 2;
-          ball.paddleHits = 0;
-        }
-        else {
-          ball.paddleHits += 1;
+        // paddle collision
+        bool collision = ballBlockCollision(paddle.position.x, paddle.position.y, paddle.w, paddle.h);
+        if(collision) {
+          if(ballHorizontalCollision(paddle.position.x, paddle.position.y, paddle.w, paddle.h)) {
+            ball.velocity.x *= -1;
+          }
+          else {
+            ball.velocity.y *= -1;
+          }
         }
       }
+
+      ball.position += ball.velocity;
+
+      ball.bounds.min.x = ball.position.x - ball.radius;
+      ball.bounds.min.y = ball.position.y - ball.radius;
+      ball.bounds.max.x = ball.position.x + ball.radius;
+      ball.bounds.max.y = ball.position.y + ball.radius;
+
+      DrawBall();
+
+      //delay(300);
+      break;
     }
+    case PAUSED:
+      if(btn == 1) {
+        tft.fillRect(50, 120, 150, 70, BLACK);
+        delay(50);
+        DrawBlocks();
+        delay(10);
+        tft.setTextSize(2);
+        gameState = PLAYING;
+      }
+      break;
+    case TITLE:
+    {
+      if(btn == 1) {
+        tft.setTextColor(GREEN);
+        gameState = PLAYING;
+        RESTART_GAME();
+        break;
+      }      
+      uint16_t col = RED;
+      if(count > 1000) {
+        col = BLACK;
+      }
+      if(count > 2000) {
+        col = RED;
+        count = 0;
+      }
+      tft.fillTriangle(77, 160, 77, 176, 92, 168, col);
+      
+      ball.lastPos = ball.position;
+
+      if(ball.bounds.max.x >= 240) {
+        ball.velocity.x = -abs(ball.velocity.x);
+      }
+      else if(ball.bounds.min.x <= 0) {
+        ball.velocity.x = abs(ball.velocity.x);
+      }
+
+      ball.position += ball.velocity;
+      ball.bounds.min.x = ball.position.x - ball.radius;
+      ball.bounds.min.y = ball.position.y - ball.radius;
+      ball.bounds.max.x = ball.position.x + ball.radius;
+      ball.bounds.max.y = ball.position.y + ball.radius;
+      DrawBall();
+      break;
+    }
+    case GAME_OVER:
+      if(btn == 1) {
+        tft.setTextSize(2);
+        gameState = PLAYING;
+        RESTART_GAME();
+        delay(50);
+      }
+      break;
+    default:
+      Serial.println("Something went horribly wrong");
   }
-
-  ball.position += ball.velocity;
-
-  ball.bounds.min.x = ball.position.x - ball.radius;
-  ball.bounds.min.y = ball.position.y - ball.radius;
-  ball.bounds.max.x = ball.position.x + ball.radius;
-  ball.bounds.max.y = ball.position.y + ball.radius;
-
-  DrawBall();
-
-  //delay(300);
 
   dt = millis() - t;
 }
