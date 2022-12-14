@@ -29,6 +29,7 @@ Adafruit_TFTLCD tft(LCD_CS, LCD_CD, LCD_WR, LCD_RD, NULL);
 #define BLOCK_SIZE_X 28
 #define BLOCK_SIZE_Y 14
 Block BLOCKS[8][7];
+int blockCount;
 
 #define PADDLE_W 64
 #define PADDLE_H 8
@@ -36,6 +37,7 @@ Paddle paddle;
 
 unsigned long t;
 unsigned long dt;
+int levelNum;
 int count;
 bool ballInBlockZone;
 bool holdingButton;
@@ -43,6 +45,7 @@ bool showFrametime;
 
 enum GameState {
   TITLE,
+  LEVEL_INTRO,
   PLAYING,
   PAUSED,
   GAME_OVER,
@@ -107,9 +110,6 @@ void DrawWalls() {
 vec2i blockPositionFromIndex(int x, int y) {
   return vec2i{x*BLOCK_SIZE_X + x*3 + 13, y*BLOCK_SIZE_Y + y*3 + 29};
 }
-vec2i indexFromBlockPosition(int x, int y) {
-  return vec2i{(x - 13) / 31, (y - 29) / 17};
-}
 
 void GenerateBlocks() {
   Serial.println("Generating blocks...");
@@ -130,10 +130,14 @@ void DrawBlocks() {
   }
 }
 
-void LoadLevel(uint8_t level[][7]) {
+void LoadLevel(int num) {
+  blockCount = 0;
   for(int i = 0; i < 8; i++) {
     for(int j = 0; j < 7; j++) {
-      BLOCKS[i][j].health = level[i][j];
+      BLOCKS[i][j].health = Levels[num][i][j];
+      if(BLOCKS[i][j].health > 0) {
+        blockCount++;
+      }
     }
   }
 }
@@ -150,6 +154,10 @@ void DrawBall() {
 }
 
 void DrawTitleScreen() {
+  ball.position = vec2i{120, 250};
+  ball.lastPos = ball.position;
+  ball.velocity = vec2i{2, 0};
+
   tft.fillScreen(BLACK);
   tft.setTextSize(4);
   tft.setTextColor(BLUE);
@@ -167,9 +175,17 @@ void DrawTitleScreen() {
   tft.println("Start");
 }
 
+void DrawLevelIntro() {
+  tft.setTextSize(2);
+  tft.setCursor(46, 160);
+  tft.print("Level ");
+  tft.println(levelNum);
+}
+
 void DrawPauseMenu() {
   tft.fillRect(20, 100, 200, 60, BLACK);
   tft.setTextSize(4);
+  tft.setTextColor(WHITE);
   tft.setCursor(50, 120);
   tft.println("PAUSED");
   tft.setTextSize(1);
@@ -188,12 +204,37 @@ void DrawGameoverScreen() {
   tft.println("Press button to restart.");
 }
 
+void DrawWinScreen() {
+  tft.setTextSize(4);
+  tft.setTextColor(GREEN);
+  tft.setCursor(28, 120);
+  tft.println("YOU WIN!");
+  tft.setTextSize(1);
+  tft.setCursor(46, 160);
+  tft.println("Press button to continue.");
+}
+void DrawWinGameScreen() {
+  tft.setTextSize(4);
+  tft.setTextColor(GREEN);
+  tft.setCursor(32, 100);
+  tft.println("YOU WON");
+  tft.setCursor(18, 131);
+  tft.println("THE GAME!");
+  tft.setTextSize(1);
+  tft.setCursor(46, 180);
+  tft.println("Thanks for playing!!");
+  tft.setCursor(46, 192);
+  tft.println("Press button to");
+  tft.setCursor(46, 200);
+  tft.println("return to title screen.");
+}
+
 void RESTART_GAME() {
   Serial.println("restarting game");
   tft.fillScreen(BLACK);
   DrawWalls();
   GenerateBlocks();
-  LoadLevel(test);
+  LoadLevel(levelNum-1);
   DrawBlocks();
 
   ball.velocity = vec2i{2, -1};
@@ -229,12 +270,10 @@ void setup() {
   holdingButton = false;
   count = 0;
   showFrametime = false;
+  blockCount = 0;
+  levelNum = 0;
 
   // game setup
-  //RESTART_GAME();
-  ball.position = vec2i{120, 250};
-  ball.lastPos = ball.position;
-  ball.velocity = vec2i{2, 0};
   DrawTitleScreen();
 }
 // =================================================================================================================================
@@ -397,6 +436,9 @@ void loop() {
               bool collision = ballBlockCollision(BLOCKS[i][j].position.x, BLOCKS[i][j].position.y, BLOCK_SIZE_X, BLOCK_SIZE_Y);
               if(collision) {
                 BLOCKS[i][j].health -= 1;
+                if(BLOCKS[i][j].health == 0) {
+                  blockCount--;
+                }
                 tft.fillRect(BLOCKS[i][j].position.x, BLOCKS[i][j].position.y, BLOCK_SIZE_X, BLOCK_SIZE_Y, ColorFromBlock(BLOCKS[i][j]));
                 if(ballHorizontalCollision(BLOCKS[i][j].position.x, BLOCKS[i][j].position.y, BLOCK_SIZE_X, BLOCK_SIZE_Y)) {
                   ball.velocity.x *= -1;
@@ -423,6 +465,20 @@ void loop() {
         }
       }
 
+      if(blockCount == 0) {
+        
+        levelNum++;
+        if(levelNum > 5) {
+          DrawWinGameScreen();
+          gameState = WON_GAME;          
+        }
+        else {
+          DrawWinScreen();
+          gameState = WON_LEVEL;
+        }
+        break;
+      }
+
       ball.position += ball.velocity;
 
       ball.bounds.min.x = ball.position.x - ball.radius;
@@ -442,6 +498,7 @@ void loop() {
         DrawBlocks();
         delay(10);
         tft.setTextSize(2);
+        tft.setTextColor(GREEN);
         gameState = PLAYING;
       }
       break;
@@ -450,6 +507,7 @@ void loop() {
       if(btn == 1) {
         tft.setTextColor(GREEN);
         gameState = PLAYING;
+        levelNum = 1;
         RESTART_GAME();
         break;
       }      
@@ -487,6 +545,22 @@ void loop() {
         RESTART_GAME();
         delay(50);
       }
+      break;
+    case WON_LEVEL:
+      if(btn == 1) {
+        tft.setTextSize(2);
+        gameState = PLAYING;
+        RESTART_GAME();
+      }
+      break;
+    case WON_GAME:
+      if(btn == 1) {
+        tft.setTextSize(2);
+        gameState = TITLE;
+        DrawTitleScreen();
+      }
+      break;
+    case LEVEL_INTRO:
       break;
     default:
       Serial.println("Something went horribly wrong");
