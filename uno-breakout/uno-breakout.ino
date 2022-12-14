@@ -237,7 +237,7 @@ void RESTART_GAME() {
   LoadLevel(levelNum-1);
   DrawBlocks();
 
-  ball.velocity = vec2i{2, -1};
+  ball.velocity = vec2i{2, -2};
   ball.position = vec2i{120, 250};
   ball.lastPos = ball.position;
   ball.bounds.min.x = ball.position.x - ball.radius;
@@ -361,7 +361,7 @@ bool ballHorizontalCollision(int x, int y, int w, int h) {
 // =================================================================== LOOP ===========================================================
 void loop() {
   t = millis();
-  Serial.println(gameState);
+  //Serial.println(gameState);
 
   if(showFrametime) {
     tft.setCursor(8, 304);
@@ -460,6 +460,15 @@ void loop() {
             ball.velocity.x *= -1;
           }
           else {
+            if(ball.position.y < paddle.position.y) {   // ball is above paddle
+              int paddleCenter = paddle.position.x + (paddle.w / 2);
+              if(ball.velocity.x > 0 && ball.position.x < paddleCenter) { // moving right and hit left side
+                ball.velocity.x *= -1;                
+              }
+              else if(ball.velocity.x < 0 && ball.position.x > paddleCenter) {  // moving left and hit right side
+                ball.velocity.x *= -1;
+              }
+            }
             ball.velocity.y *= -1;
           }
         }
